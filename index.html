@@ -1,36 +1,84 @@
 <!DOCTYPE html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Video Compressor for WhatsApp</title>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    
+    <!-- Primary Meta Tags -->
+    <title>Kompres Video HD untuk Status WA - Cepat & Mudah</title>
+    <meta name="description" content="Kompres video mentah menjadi kualitas HD yang dioptimalkan untuk Story atau Status WhatsApp. Pertahankan kualitas video Anda tanpa pecah. Gratis dan langsung di browser.">
+    <meta name="keywords" content="kompres video, video whatsapp, status wa, story wa, video hd, perkecil video, video compressor, whatsapp story">
+    <meta name="author" content="VidWA Compressor">
+    <link rel="canonical" href="https://vidwa-compressor.vercel.app/">
+
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://vidwa-compressor.vercel.app/">
+    <meta property="og:title" content="Kompres Video HD untuk Status WA - Cepat & Mudah">
+    <meta property="og:description" content="Jangan biarkan video Status WA Anda pecah! Kompres video mentah menjadi kualitas HD yang jernih dan tajam, langsung dari browser Anda. Cepat, gratis, dan aman.">
+    <meta property="og:image" content="https://vidwa-compressor.vercel.app/social-preview.png">
+
+    <!-- Twitter -->
+    <meta property="twitter:card" content="summary_large_image">
+    <meta property="twitter:url" content="https://vidwa-compressor.vercel.app/">
+    <meta property="twitter:title" content="Kompres Video HD untuk Status WA - Cepat & Mudah">
+    <meta property="twitter:description" content="Jangan biarkan video Status WA Anda pecah! Kompres video mentah menjadi kualitas HD yang jernih dan tajam, langsung dari browser Anda. Cepat, gratis, dan aman.">
+    <meta property="twitter:image" content="https://vidwa-compressor.vercel.app/social-preview.png">
+
+    <!-- Font -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <script type="importmap">
+    {
+      "imports": {
+        "react": "https://aistudiocdn.com/react@^19.2.0",
+        "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
+        "react/": "https://aistudiocdn.com/react@^19.2.0/",
+        "@ffmpeg/util": "https://aistudiocdn.com/@ffmpeg/util@^0.12.2",
+        "@ffmpeg/ffmpeg": "https://aistudiocdn.com/@ffmpeg/ffmpeg@^0.12.15"
+      }
+    }
+    </script>
+    
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
       tailwind.config = {
         theme: {
           extend: {
-            colors: {
-              'brand-green': '#25D366',
+            fontFamily: {
+              sans: ['Inter', 'sans-serif'],
             },
           },
         },
       }
     </script>
-  <script type="importmap">
-{
-  "imports": {
-    "react": "https://aistudiocdn.com/react@^19.2.0",
-    "react/": "https://aistudiocdn.com/react@^19.2.0/",
-    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
-    "@ffmpeg/util": "https://aistudiocdn.com/@ffmpeg/util@^0.12.2",
-    "@ffmpeg/ffmpeg": "https://aistudiocdn.com/@ffmpeg/ffmpeg@^0.12.15"
-  }
-}
-</script>
+
+    <!-- Structured Data -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "WebApplication",
+      "name": "VidWA Compressor",
+      "description": "Kompres video mentah menjadi kualitas HD yang dioptimalkan untuk Story atau Status WhatsApp. Pertahankan kualitas video Anda tanpa pecah. Gratis dan langsung di browser.",
+      "url": "https://vidwa-compressor.vercel.app/",
+      "applicationCategory": "MultimediaApplication",
+      "operatingSystem": "Any",
+      "offers": {
+        "@type": "Offer",
+        "price": "0"
+      }
+    }
+    </script>
+    <style>
+      body {
+        background-color: #0c111d;
+      }
+    </style>
 </head>
-  <body style="background-image: radial-gradient( circle farthest-corner at 8.3% 21.6%,  rgba(252,92,125,1) 13.1%, rgba(106,130,251,1) 90% );">
+<body>
     <div id="root"></div>
     <script type="module" src="/index.tsx"></script>
-  </body>
+</body>
 </html>

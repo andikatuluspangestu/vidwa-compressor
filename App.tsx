@@ -1,298 +1,240 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { AppState } from './types';
 import { loadFfmpeg, compressVideo } from './services/ffmpegService';
-import { UploadIcon, DownloadIcon, VideoIcon } from './components/icons';
-
-interface FileInfoProps {
-  file: File;
-}
-
-const FileInfo: React.FC<FileInfoProps> = ({ file }) => (
-  <div className="flex items-center space-x-4 bg-white/60 backdrop-blur-sm p-4 rounded-lg border border-white/30">
-    <VideoIcon className="h-10 w-10 text-brand-green flex-shrink-0" />
-    <div className="min-w-0">
-      <p className="text-sm font-medium text-slate-800 truncate">{file.name}</p>
-      <p className="text-xs text-slate-500">{(file.size / 1024 / 1024).toFixed(2)} MB</p>
-    </div>
-  </div>
-);
-
-interface ProcessingViewProps {
-  progress: number;
-  message: string;
-  processedBytes?: number;
-  totalBytes?: number;
-}
-
-const ProcessingView: React.FC<ProcessingViewProps> = ({ progress, message, processedBytes, totalBytes }) => (
-    <div className="w-full text-center p-8 bg-white/60 backdrop-blur-sm rounded-xl border border-white/30">
-        <h2 className="text-lg font-semibold text-slate-800 mb-4">{message}</h2>
-        <div className="w-full bg-slate-200 rounded-full h-4 overflow-hidden">
-            <div
-                className="bg-brand-green h-4 rounded-full transition-all duration-300 ease-linear"
-                style={{ width: `${progress}%` }}
-            ></div>
-        </div>
-        <div className="flex justify-between items-center mt-2">
-            <span className="text-sm text-slate-500">
-                {processedBytes !== undefined && totalBytes !== undefined 
-                    ? `${(processedBytes / 1024 / 1024).toFixed(2)} MB / ${(totalBytes / 1024 / 1024).toFixed(2)} MB`
-                    : ''
-                }
-            </span>
-            <p className="text-brand-green text-xl font-bold">{progress}%</p>
-        </div>
-    </div>
-);
-
-interface ResultViewProps {
-    outputUrl: string;
-    originalSize: number;
-    compressedSize: number;
-    onReset: () => void;
-}
-
-const ResultView: React.FC<ResultViewProps> = ({ outputUrl, originalSize, compressedSize, onReset }) => {
-    const sizeReduction = originalSize > 0 ? ((originalSize - compressedSize) / originalSize) * 100 : 0;
-
-    return (
-        <div className="w-full flex flex-col gap-6 items-center">
-            <h2 className="text-2xl font-bold text-center text-slate-800">Kompresi Selesai!</h2>
-            <div className="w-full max-w-lg bg-slate-900 rounded-xl overflow-hidden shadow-lg">
-                <video src={outputUrl} controls className="w-full aspect-video"></video>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 w-full max-w-lg text-center">
-                <div className="bg-white/50 backdrop-blur-sm p-4 rounded-lg border border-white/30">
-                    <p className="text-sm text-slate-500">Ukuran Asli</p>
-                    <p className="text-lg font-bold text-slate-800">{(originalSize / 1024 / 1024).toFixed(2)} MB</p>
-                </div>
-                <div className="bg-white/50 backdrop-blur-sm p-4 rounded-lg border border-white/30">
-                    <p className="text-sm text-slate-500">Ukuran Baru</p>
-                    <p className="text-lg font-bold text-brand-green">{(compressedSize / 1024 / 1024).toFixed(2)} MB</p>
-                </div>
-                <div className="bg-white/50 backdrop-blur-sm p-4 rounded-lg border border-white/30">
-                    <p className="text-sm text-slate-500">Pengurangan</p>
-                    <p className="text-lg font-bold text-slate-800">{sizeReduction.toFixed(1)}%</p>
-                </div>
-            </div>
-            <div className="flex flex-col sm:flex-row gap-4 w-full max-w-lg">
-                <a
-                    href={outputUrl}
-                    download={`compressed_${Date.now()}.mp4`}
-                    className="flex-1 flex items-center justify-center gap-2 w-full bg-brand-green text-white font-bold py-3 px-6 rounded-lg hover:bg-green-500 transition-colors duration-300 shadow-md"
-                >
-                    <DownloadIcon className="h-5 w-5" />
-                    Unduh Video
-                </a>
-                <button
-                    onClick={onReset}
-                    className="flex-1 w-full bg-white/80 text-slate-700 font-bold py-3 px-6 rounded-lg hover:bg-white transition-colors duration-300 shadow-md"
-                >
-                    Kompres Video Lain
-                </button>
-            </div>
-        </div>
-    );
-};
+import { UploadIcon, DownloadIcon, VideoIcon, SpinnerIcon } from './components/icons';
 
 const App: React.FC = () => {
-    const [appState, setAppState] = useState<AppState>(AppState.IDLE);
-    const [inputFile, setInputFile] = useState<File | null>(null);
-    const [outputUrl, setOutputUrl] = useState<string>('');
-    const [progress, setProgress] = useState({ percentage: 0, processedBytes: 0 });
-    const [loadingProgress, setLoadingProgress] = useState(0);
-    const [message, setMessage] = useState('');
-    const [originalSize, setOriginalSize] = useState(0);
-    const [compressedSize, setCompressedSize] = useState(0);
-    const [error, setError] = useState<string | null>(null);
-    const fileInputRef = useRef<HTMLInputElement>(null);
-    const loadingIntervalRef = useRef<number | null>(null);
+  const [appState, setAppState] = useState<AppState>(AppState.IDLE);
+  const [videoFile, setVideoFile] = useState<File | null>(null);
+  const [compressedVideoBlob, setCompressedVideoBlob] = useState<Blob | null>(null);
+  const [progress, setProgress] = useState(0);
+  const [processedBytes, setProcessedBytes] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+  const inputFileRef = useRef<HTMLInputElement>(null);
 
-    useEffect(() => {
-        const initFfmpeg = async () => {
-            try {
-                setAppState(AppState.LOADING_FFMPEG);
-                setMessage('Mengunduh komponen inti...');
-                
-                setLoadingProgress(0);
-                const SIMULATED_DURATION_MS = 15000;
-                const INTERVAL_MS = 100;
-                const MAX_SIMULATED_PROGRESS = 95;
-                
-                loadingIntervalRef.current = window.setInterval(() => {
-                    setLoadingProgress(prev => {
-                        const newProgress = prev + (MAX_SIMULATED_PROGRESS / (SIMULATED_DURATION_MS / INTERVAL_MS));
-                        if (newProgress >= MAX_SIMULATED_PROGRESS) {
-                            if (loadingIntervalRef.current) clearInterval(loadingIntervalRef.current);
-                            return MAX_SIMULATED_PROGRESS;
-                        }
-                        return newProgress;
-                    });
-                }, INTERVAL_MS);
-
-                await loadFfmpeg();
-
-                if (loadingIntervalRef.current) clearInterval(loadingIntervalRef.current);
-                setLoadingProgress(100);
-
-                setTimeout(() => {
-                    setAppState(AppState.READY);
-                    setMessage('');
-                }, 500);
-
-            } catch (err) {
-                if (loadingIntervalRef.current) clearInterval(loadingIntervalRef.current);
-                console.error('Failed to load ffmpeg', err);
-                setError('Gagal memuat komponen kompresi. Coba muat ulang halaman.');
-                setAppState(AppState.ERROR);
-            }
-        };
-        initFfmpeg();
-
-        return () => {
-            if (loadingIntervalRef.current) {
-                clearInterval(loadingIntervalRef.current);
-            }
-        };
-    }, []);
-
-
-    const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
-        const file = event.target.files?.[0];
-        if (file && file.type.startsWith('video/')) {
-            setInputFile(file);
-            setOriginalSize(file.size);
-            setError(null);
-        } else {
-            setError('Silakan pilih file video yang valid.');
-            setInputFile(null);
-        }
-    };
-
-    const handleCompress = useCallback(async () => {
-        if (!inputFile) return;
-
-        setAppState(AppState.PROCESSING);
-        setProgress({ percentage: 0, processedBytes: 0 });
-        setMessage('Mempersiapkan video...');
-        
-        try {
-            const onProgress = (p: { percentage: number; processedBytes: number }) => {
-                setProgress(p);
-                 if (p.percentage < 99) {
-                    setMessage(`Mengompres video...`);
-                } else {
-                    setMessage(`Menyelesaikan... sedikit lagi!`);
-                }
-            };
-
-            const outputBlob = await compressVideo(inputFile, onProgress);
-            const url = URL.createObjectURL(outputBlob);
-            
-            setOutputUrl(url);
-            setCompressedSize(outputBlob.size);
-            setAppState(AppState.DONE);
-            setMessage('');
-        } catch (err) {
-            console.error('Compression failed', err);
-            setError('Terjadi kesalahan saat kompresi. Pastikan video tidak rusak.');
-            setAppState(AppState.READY);
-        }
-    }, [inputFile]);
-
-    const resetState = () => {
-        if (outputUrl) URL.revokeObjectURL(outputUrl);
-        setInputFile(null);
-        setOutputUrl('');
-        setProgress({ percentage: 0, processedBytes: 0 });
-        setOriginalSize(0);
-        setCompressedSize(0);
+  useEffect(() => {
+    const initFfmpeg = async () => {
+      setAppState(AppState.LOADING_FFMPEG);
+      try {
+        await loadFfmpeg();
         setAppState(AppState.READY);
+      } catch (err) {
+        console.error(err);
+        setError('Failed to load FFmpeg. Please check the console for details.');
+        setAppState(AppState.ERROR);
+      }
     };
+    initFfmpeg();
+  }, []);
 
-    const renderContent = () => {
-        switch (appState) {
-            case AppState.IDLE:
-            case AppState.LOADING_FFMPEG:
-                return (
-                    <div className="w-full">
-                        <ProcessingView progress={Math.round(loadingProgress)} message={message} />
-                        <p className="text-center text-slate-700 text-sm mt-4 max-w-xs mx-auto">
-                            Proses ini hanya terjadi sekali saat membuka web. Harap tunggu sebentar (±32 MB).
-                        </p>
-                    </div>
-                );
-            case AppState.READY:
-                return (
-                    <div className="w-full flex flex-col gap-6">
-                        {!inputFile ? (
-                            <div 
-                                onClick={() => fileInputRef.current?.click()}
-                                className="w-full p-10 border-2 border-dashed border-gray-200/50 rounded-xl flex flex-col items-center justify-center gap-4 cursor-pointer hover:border-brand-green hover:bg-white/60 transition-all duration-300"
-                            >
-                                <UploadIcon className="h-12 w-12 text-slate-500" />
-                                <span className="text-lg font-semibold text-slate-900">Klik untuk Pilih Video</span>
-                                <span className="text-sm text-slate-600">Atau seret & lepas file di sini</span>
-                                <input
-                                    type="file"
-                                    ref={fileInputRef}
-                                    onChange={handleFileSelect}
-                                    accept="video/*"
-                                    className="hidden"
-                                />
-                            </div>
-                        ) : (
-                            <div className="w-full flex flex-col items-center gap-4">
-                                <FileInfo file={inputFile} />
-                                <button
-                                    onClick={handleCompress}
-                                    className="w-full max-w-md bg-brand-green text-white font-bold py-3 px-6 rounded-lg hover:bg-green-500 transition-colors duration-300 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg"
-                                >
-                                    Kompres Video
-                                </button>
-                            </div>
-                        )}
-                    </div>
-                );
-            case AppState.PROCESSING:
-                return <ProcessingView progress={progress.percentage} message={message} processedBytes={progress.processedBytes} totalBytes={originalSize} />;
-            case AppState.DONE:
-                return <ResultView outputUrl={outputUrl} originalSize={originalSize} compressedSize={compressedSize} onReset={resetState} />;
-            case AppState.ERROR:
-                 return (
-                    <div className="text-center p-8 bg-white/80 border border-red-300 rounded-lg">
-                        <h2 className="text-xl font-semibold text-red-700">Terjadi Kesalahan</h2>
-                        <p className="text-red-600 mt-2">{error}</p>
-                    </div>
-                 );
-            default:
-                return null;
-        }
-    };
-    
-    return (
-        <div className="min-h-screen flex flex-col items-center justify-center p-4 sm:p-6 lg:p-8">
-            <main className="w-full max-w-2xl mx-auto flex flex-col items-center gap-6">
-                <header className="text-center">
-                    <h1 className="text-3xl sm:text-4xl font-extrabold text-white" style={{ textShadow: '1px 1px 3px rgba(0,0,0,0.3)' }}>
-                        Video Compressor <span className="text-brand-green">untuk WhatsApp</span>
-                    </h1>
-                    <p className="mt-2 text-md text-gray-200 max-w-prose" style={{ textShadow: '1px 1px 2px rgba(0,0,0,0.2)' }}>
-                        Kompres video Anda agar tetap HD saat diunggah ke Story WhatsApp. Cepat, mudah, dan langsung di browser Anda.
-                    </p>
-                </header>
-                <div className="w-full bg-white/50 backdrop-blur-lg p-6 sm:p-8 rounded-2xl shadow-2xl border border-white/30 min-h-[20rem] flex items-center justify-center">
-                    {renderContent()}
+  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      setVideoFile(file);
+      setCompressedVideoBlob(null);
+      setProgress(0);
+      setProcessedBytes(0);
+      setError(null);
+    }
+  };
+
+  const handleCompress = async () => {
+    if (!videoFile) {
+      setError('Please select a video file first.');
+      return;
+    }
+
+    setAppState(AppState.PROCESSING);
+    setError(null);
+    setProgress(0);
+    setProcessedBytes(0);
+
+    try {
+      const blob = await compressVideo(videoFile, ({ percentage, processedBytes }) => {
+        setProgress(percentage);
+        setProcessedBytes(processedBytes);
+      });
+      setCompressedVideoBlob(blob);
+      setAppState(AppState.DONE);
+    } catch (err) {
+      console.error(err);
+      let errorMessage = 'An error occurred during video compression.';
+      if (err instanceof Error) {
+        errorMessage += ` Details: ${err.message}`;
+      }
+      setError(errorMessage);
+      setAppState(AppState.ERROR);
+    }
+  };
+
+  const handleDownload = () => {
+    if (compressedVideoBlob) {
+      const url = URL.createObjectURL(compressedVideoBlob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `compressed-${videoFile?.name || 'video.mp4'}`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+  };
+
+  const handleReset = () => {
+    setVideoFile(null);
+    setCompressedVideoBlob(null);
+    setProgress(0);
+    setProcessedBytes(0);
+    setError(null);
+    setAppState(AppState.READY);
+    if (inputFileRef.current) {
+        inputFileRef.current.value = "";
+    }
+  };
+
+  const formatBytes = (bytes: number, decimals = 2) => {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const dm = decimals < 0 ? 0 : decimals;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+  };
+  
+  const renderReadyState = () => (
+    <div className="space-y-8 text-center">
+        <div>
+            <label htmlFor="file-upload" className="cursor-pointer group">
+                <div className="flex flex-col items-center justify-center w-full h-64 bg-white/5 border border-white/10 rounded-2xl group-hover:bg-white/10 transition-colors">
+                    <UploadIcon className="w-12 h-12 text-gray-400 group-hover:text-white transition-colors" />
+                    <span className="mt-4 text-lg font-medium text-gray-200">
+                        {videoFile ? videoFile.name : "Click to upload a video"}
+                    </span>
+                    <p className="text-sm text-gray-400 mt-1">MP4, MOV, AVI, etc.</p>
                 </div>
-                 {error && appState !== AppState.ERROR && (
-                    <p className="text-red-100 bg-red-800/50 px-4 py-2 rounded-md text-sm mt-2">{error}</p>
-                )}
-                <footer className="text-center text-white/70 text-sm mt-4">
-                    <p>Ditenagai oleh FFMPEG.wasm. Privasi Anda terjamin, video tidak pernah diunggah ke server.</p>
-                </footer>
+                <input ref={inputFileRef} id="file-upload" name="file-upload" type="file" className="sr-only" onChange={handleFileChange} accept="video/*" />
+            </label>
+        </div>
+        {videoFile && (
+            <div className="flex justify-center">
+                <button
+                    onClick={handleCompress}
+                    className="px-10 py-4 text-xl font-semibold text-white bg-blue-600/50 rounded-xl shadow-lg hover:bg-blue-600/80 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-900 focus:ring-blue-500 transition-all transform hover:scale-105"
+                >
+                    Compress Video
+                </button>
+            </div>
+        )}
+    </div>
+  );
+
+  const renderProcessingState = () => (
+    <div className="text-center py-12">
+        <SpinnerIcon className="w-12 h-12 mx-auto animate-spin mb-6 text-white" />
+        <p className="text-2xl font-semibold text-white">Compressing video...</p>
+        <div className="w-full bg-white/10 rounded-full mt-6 h-4 overflow-hidden">
+            <div className="bg-blue-500 h-4 rounded-full transition-all duration-300" style={{ width: `${progress}%` }}></div>
+        </div>
+        <p className="text-xl font-mono text-white mt-4">{progress}%</p>
+        {videoFile && (
+            <p className="text-md text-gray-300 mt-1">
+                {formatBytes(processedBytes)} / {formatBytes(videoFile.size)}
+            </p>
+        )}
+    </div>
+  );
+  
+  const renderDoneState = () => (
+    <div className="space-y-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+            <div>
+                <h3 className="text-xl font-semibold text-white mb-3">Original Video</h3>
+                <video src={videoFile ? URL.createObjectURL(videoFile) : ''} controls className="w-full rounded-lg shadow-lg"></video>
+                <p className="text-md text-gray-300 mt-3">Size: <span className="font-medium text-white">{videoFile ? formatBytes(videoFile.size) : 'N/A'}</span></p>
+            </div>
+            <div>
+                <h3 className="text-xl font-semibold text-white mb-3">Compressed Video</h3>
+                <video src={compressedVideoBlob ? URL.createObjectURL(compressedVideoBlob) : ''} controls className="w-full rounded-lg shadow-lg"></video>
+                <p className="text-md text-gray-300 mt-3">Size: <span className="font-medium text-white">{compressedVideoBlob ? formatBytes(compressedVideoBlob.size) : 'N/A'}</span></p>
+            </div>
+        </div>
+        {videoFile && compressedVideoBlob && (
+            <div className="text-center bg-green-500/20 p-4 rounded-xl border border-green-500/30">
+                <p className="text-lg text-green-200 font-semibold">
+                    Compression saved {formatBytes(videoFile.size - compressedVideoBlob.size)} (
+                    {(((videoFile.size - compressedVideoBlob.size) / videoFile.size) * 100).toFixed(1)}% reduction)
+                </p>
+            </div>
+        )}
+        <div className="flex justify-center items-center space-x-6 pt-4">
+            <button
+                onClick={handleDownload}
+                className="flex items-center justify-center px-8 py-3 text-lg font-semibold text-white bg-green-600/80 rounded-xl shadow-lg hover:bg-green-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-900 focus:ring-green-500 transition-all transform hover:scale-105"
+            >
+                <DownloadIcon className="w-6 h-6 mr-3" /> Download
+            </button>
+            <button
+                onClick={handleReset}
+                className="px-8 py-3 text-lg font-semibold text-gray-200 bg-white/10 rounded-xl shadow-lg hover:bg-white/20 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-900 focus:ring-gray-400 transition-all transform hover:scale-105"
+            >
+                Compress Another
+            </button>
+        </div>
+    </div>
+  );
+  
+  const renderErrorState = () => (
+    <div className="text-center p-6 bg-red-500/20 border border-red-500/30 rounded-xl">
+        <p className="text-2xl font-semibold text-red-200">An Error Occurred</p>
+        <p className="text-red-300 mt-2">{error}</p>
+        <button
+            onClick={handleReset}
+            className="mt-6 px-6 py-2 font-semibold text-white bg-red-600/80 rounded-lg hover:bg-red-700"
+        >
+            Try Again
+        </button>
+    </div>
+  );
+  
+  const getContent = () => {
+    switch(appState) {
+        case AppState.IDLE:
+        case AppState.LOADING_FFMPEG:
+            return (
+                <div className="text-center py-12">
+                    <SpinnerIcon className="w-12 h-12 mx-auto animate-spin text-white" />
+                    <p className="mt-6 text-lg text-gray-300">Loading FFmpeg core...</p>
+                    <p className="text-sm text-gray-400">This may take a moment on first visit.</p>
+                </div>
+            );
+        case AppState.READY:
+            return renderReadyState();
+        case AppState.PROCESSING:
+            return renderProcessingState();
+        case AppState.DONE:
+            return renderDoneState();
+        case AppState.ERROR:
+            return renderErrorState();
+        default: return null;
+    }
+  }
+
+  return (
+    <div className="min-h-screen flex items-center justify-center p-4 font-sans antialiased bg-gradient-to-br from-[#0c111d] via-[#1a233e] to-[#3a4e8a]">
+        <div className="w-full max-w-5xl mx-auto bg-black/20 backdrop-blur-2xl border border-white/10 rounded-3xl shadow-2xl p-8 md:p-12 space-y-8">
+            <header className="text-center">
+                <div className="flex items-center justify-center space-x-4">
+                    <VideoIcon className="w-12 h-12 text-blue-400" />
+                    <h1 className="text-5xl font-extrabold text-white tracking-tight">VidWA Compressor</h1>
+                </div>
+                <p className="mt-4 text-xl text-gray-300">Compress HD videos for your WhatsApp Status.</p>
+            </header>
+            <main className="mt-8">
+                {getContent()}
             </main>
         </div>
-    );
+    </div>
+  );
 };
 
 export default App;
