@@ -4,10 +4,7 @@
 
 Aplikasi ini adalah alat kompresi video sisi klien yang dirancang khusus untuk mengoptimalkan video agar memiliki kualitas terbaik saat diunggah sebagai Status atau Story WhatsApp.
 
-**[➡️ Coba Live Demo](https://vidwa-compressor.vercel.app/)**
-
-![VidWA Compressor Screenshot](https://raw.githubusercontent.com/julianromli/fastcompress/main/public/screenshot.png)
-*<p align="center">Tampilan antarmuka terinspirasi dari FastCompress</p>*
+![VidWA Compressor Screenshot](https://ucarecdn.com/8d1a6a88-1f2d-4cd2-ab69-4569b0dde1e7/-/preview/1000x563/)
 
 ---
 
