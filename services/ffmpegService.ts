@@ -25,23 +25,23 @@ export async function loadFfmpeg(): Promise<void> {
 
 export async function compressVideo(
   videoFile: File,
-  duration: number,
   onProgress: (details: { percentage: number; processedBytes: number }) => void
 ): Promise<Blob> {
   if (!ffmpeg || !ffmpeg.loaded) {
     throw new Error('FFMPEG is not loaded.');
   }
 
-  ffmpeg.on('progress', ({ time }) => {
-    if (duration > 0) {
-      const percentage = Math.round((time / duration) * 100);
-      const processedBytes = Math.min(videoFile.size, (time / duration) * videoFile.size);
-      onProgress({
-        percentage: Math.min(100, percentage),
+  const progressListener = ({ progress }) => {
+    // The progress property from ffmpeg is a ratio from 0 to 1.
+    const percentage = Math.round(Math.min(progress, 1) * 100);
+    const processedBytes = Math.min(videoFile.size, Math.min(progress, 1) * videoFile.size);
+    onProgress({
+        percentage,
         processedBytes,
-      });
-    }
-  });
+    });
+  };
+
+  ffmpeg.on('progress', progressListener);
 
   const inputFileName = 'input.mp4';
   const outputFileName = 'output.mp4';
@@ -59,7 +59,12 @@ export async function compressVideo(
     outputFileName,
   ];
   
-  await ffmpeg.exec(command);
+  try {
+    await ffmpeg.exec(command);
+  } finally {
+    // Clean up the listener to prevent memory leaks
+    ffmpeg.off('progress', progressListener);
+  }
   
   const data = await ffmpeg.readFile(outputFileName);
 
