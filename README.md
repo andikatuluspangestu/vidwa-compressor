@@ -20,13 +20,21 @@ Dengan melakukan pra-kompresi video Anda ke format dan ukuran yang "ramah" bagi 
 ## 🚀 Fitur Utama
 
 - **🔒 100% Privat & Aman**: Semua proses video dilakukan langsung di browser Anda. File Anda tidak pernah diunggah ke server mana pun.
-- **📱 Dioptimalkan untuk WhatsApp**: Menggunakan *two-pass encoding* untuk mencapai kualitas terbaik pada ukuran file target yang ideal untuk status WhatsApp (biasanya di bawah 16MB).
-- **⚙️ Pengaturan Fleksibel**: Sesuaikan kompresi dengan mengatur ukuran file target, mengubah resolusi (1080p, 720p, 480p), dan opsi untuk menghapus audio.
+- **📱 Dioptimalkan untuk WhatsApp**: Menggunakan *single-pass encoding* yang andal untuk mencapai keseimbangan terbaik antara kualitas dan ukuran file.
+- **⚙️ Pengaturan Fleksibel**:
+    - **Preset**: Pilih antara "Kualitas Terbaik", "Seimbang", atau "Ukuran Terkecil".
+    - **Manual**: Sesuaikan ukuran file target, resolusi (1080p, 720p, 480p), dan opsi untuk menghapus audio.
+- **✂️ Pemangkas Video**: Tentukan waktu mulai dan selesai untuk memotong video sebelum dikompres.
+- **🔄 Konversi ke GIF**: Ubah klip video Anda menjadi GIF animasi berkualitas tinggi.
+- **📊 Info Detail**: Lihat resolusi asli, durasi, dan FPS video Anda sebelum memulai.
+- **⏱️ Estimasi Waktu (ETA)**: Lihat perkiraan sisa waktu saat kompresi sedang berjalan.
+- **💾 Simpan Pengaturan**: Pilihan kompresi terakhir Anda disimpan secara otomatis untuk kunjungan berikutnya.
+- **🔔 Notifikasi**: Dapatkan notifikasi browser saat video Anda selesai diproses.
 - **🖼️ Pratinjau Instan**: Lihat *thumbnail* video secara instan setelah diunggah.
 - **🖱️ Antarmuka Drag & Drop**: Cukup seret dan lepas file video Anda untuk memulai.
-- **📋 Salin ke Clipboard**: Salin video yang telah dikompres langsung ke *clipboard* untuk ditempelkan dengan mudah di aplikasi web.
-- **📊 Perbandingan Hasil**: Bandingkan video asli dan hasil kompresi secara berdampingan di halaman hasil.
+- **📋 Salin ke Clipboard**: Salin video/GIF yang telah dikompres langsung ke *clipboard*.
 - **💨 Cepat & Efisien**: Ditenagai oleh FFmpeg.wasm yang berjalan dengan WebAssembly untuk kecepatan pemrosesan yang mendekati *native*.
+
 
 ## 🛠️ Tumpukan Teknologi (Tech Stack)
 
@@ -39,8 +47,8 @@ Dengan melakukan pra-kompresi video Anda ke format dan ukuran yang "ramah" bagi 
 
 1.  **Pilih Video**: Anda memilih file video dari perangkat Anda atau melepaskannya ke area unggah.
 2.  **Muat FFmpeg**: Aplikasi memuat *core library* FFmpeg sebagai modul WebAssembly. Proses ini mungkin memerlukan beberapa saat pada kunjungan pertama Anda.
-3.  **Atur & Kompres**: Anda mengonfigurasi pengaturan yang diinginkan (ukuran target, resolusi). Aplikasi kemudian menggunakan proses *two-pass encoding* dengan codec `libx24` untuk mengompres video secara efisien, memprioritaskan kualitas pada *bitrate* target.
-4.  **Unduh & Gunakan**: Video yang telah dikompresi disajikan kepada Anda untuk diunduh atau disalin, semuanya tanpa pernah menyentuh server.
+3.  **Atur & Kompres**: Anda mengonfigurasi pengaturan yang diinginkan (preset, ukuran target, resolusi, pemotongan, dll). Aplikasi kemudian menggunakan `libx264` (untuk video) atau proses palet dua langkah (untuk GIF) untuk mengompres media secara efisien.
+4.  **Unduh & Gunakan**: Video atau GIF yang telah dikompresi disajikan kepada Anda untuk diunduh atau disalin, semuanya tanpa pernah menyentuh server.
 
 ## 💻 Menjalankan Secara Lokal
 

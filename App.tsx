@@ -1,17 +1,29 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { AppState } from './types';
-import { loadFfmpeg, compressVideo, getVideoMetadata } from './services/ffmpegService';
+import { loadFfmpeg, compressVideo, getVideoMetadata, VideoInfo, convertToGif } from './services/ffmpegService';
 import { UploadIcon, DownloadIcon, VideoIcon, SpinnerIcon, CopyIcon, TrashIcon, CheckIcon } from './components/icons';
 import { Faq } from './components/Faq';
+
+const DEFAULT_SETTINGS = {
+  resolution: 720,
+  removeAudio: false,
+  targetSizeMB: 8,
+  convertToGif: false,
+  startTime: '',
+  endTime: '',
+  gifFps: 15,
+  gifResolution: 480,
+};
 
 interface CompressionSettings {
   resolution: number;
   removeAudio: boolean;
   targetSizeMB: number;
-}
-
-interface VideoMetadata {
-  duration: number;
+  convertToGif: boolean;
+  startTime: string;
+  endTime: string;
+  gifFps: number;
+  gifResolution: number;
 }
 
 const App: React.FC = () => {
@@ -19,14 +31,29 @@ const App: React.FC = () => {
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [compressedVideoBlob, setCompressedVideoBlob] = useState<Blob | null>(null);
   const [progress, setProgress] = useState(0);
+  const [progressMessage, setProgressMessage] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [thumbnail, setThumbnail] = useState<string | null>(null);
-  const [metadata, setMetadata] = useState<VideoMetadata | null>(null);
-  const [settings, setSettings] = useState<CompressionSettings>({ resolution: 720, removeAudio: false, targetSizeMB: 8 });
+  const [metadata, setMetadata] = useState<VideoInfo | null>(null);
+  const [settings, setSettings] = useState<CompressionSettings>(() => {
+    try {
+      // FIX: Use window.localStorage and cast to any to fix "Cannot find name 'localStorage'" error.
+      const savedSettings = (window as any).localStorage.getItem('compressionSettings');
+      return savedSettings ? { ...DEFAULT_SETTINGS, ...JSON.parse(savedSettings) } : DEFAULT_SETTINGS;
+    } catch {
+      return DEFAULT_SETTINGS;
+    }
+  });
   const [copyStatus, setCopyStatus] = useState<'idle' | 'copied'>('idle');
-  
+  const [eta, setEta] = useState('');
+  const compressionStartRef = useRef<number | null>(null);
   const inputFileRef = useRef<HTMLInputElement>(null);
+  
+  useEffect(() => {
+    // FIX: Use window.localStorage and cast to any to fix "Cannot find name 'localStorage'" error.
+    (window as any).localStorage.setItem('compressionSettings', JSON.stringify(settings));
+  }, [settings]);
 
   useEffect(() => {
     const initFfmpeg = async () => {
@@ -52,12 +79,18 @@ const App: React.FC = () => {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
   };
 
+  const formatDuration = (totalSeconds: number) => {
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = Math.floor(totalSeconds % 60);
+    return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+  };
+
   const generateThumbnail = (file: File): Promise<string> => {
     return new Promise((resolve) => {
-      // FIX: Use `window.document` to resolve 'document' not found error.
-      const video = window.document.createElement('video');
-      // FIX: Use `window.document` to resolve 'document' not found error.
-      const canvas = window.document.createElement('canvas');
+      // FIX: Cast window to any to access document property due to missing DOM typings.
+      const video = (window as any).document.createElement('video');
+      // FIX: Cast window to any to access document property due to missing DOM typings.
+      const canvas = (window as any).document.createElement('canvas');
       video.src = URL.createObjectURL(file);
       video.onloadeddata = () => {
         video.currentTime = 1;
@@ -98,8 +131,8 @@ const App: React.FC = () => {
   }, []);
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    // FIX: Cast event.target to HTMLInputElement to access the 'files' property.
-    const file = (event.target as HTMLInputElement).files?.[0];
+    // FIX: Cast event.target to any to access 'files' property due to incomplete DOM typings.
+    const file = (event.target as any).files?.[0];
     handleFileSelect(file || null);
   };
   
@@ -111,35 +144,87 @@ const App: React.FC = () => {
   
   const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
       handleDragEvents(e, false);
-      // FIX: Cast e.dataTransfer to `any` to access the `files` property, which is missing from the default `DataTransfer` type in this environment.
       const file = (e.dataTransfer as any).files?.[0];
       handleFileSelect(file || null);
+  };
+
+  const showNotification = () => {
+      if (!('Notification' in window)) return;
+      // FIX: Access Notification via window and cast to any due to missing DOM typings.
+      if ((window as any).Notification.permission === 'granted') {
+          // FIX: Access Notification via window and cast to any due to missing DOM typings.
+          new (window as any).Notification('Compression Complete!', {
+              body: `${videoFile?.name} is ready for download.`,
+              icon: '/favicon.ico'
+          });
+      // FIX: Access Notification via window and cast to any due to missing DOM typings.
+      } else if ((window as any).Notification.permission !== 'denied') {
+          // FIX: Property 'requestPermission' does not exist on type 'Notification'. Cast to any as a workaround for incomplete DOM typings.
+          (window as any).Notification.requestPermission().then((permission: string) => {
+              if (permission === 'granted') showNotification();
+          });
+      }
   };
 
   const handleCompress = async () => {
     if (!videoFile || !metadata) return;
     setAppState(AppState.PROCESSING);
     setProgress(0);
+    setEta('');
+    compressionStartRef.current = Date.now();
+    
     try {
-      const blob = await compressVideo(videoFile, metadata.duration, settings, ({ percentage }) => {
-        setProgress(percentage);
-      });
+      let blob: Blob;
+      if (settings.convertToGif) {
+          blob = await convertToGif(videoFile, {
+              resolution: settings.gifResolution,
+              fps: settings.gifFps,
+              startTime: settings.startTime,
+              endTime: settings.endTime
+          }, ({ percentage, step }) => {
+              setProgress(percentage);
+              setProgressMessage(step);
+          });
+      } else {
+          blob = await compressVideo(videoFile, metadata.duration, settings, ({ percentage }) => {
+            setProgress(percentage);
+            setProgressMessage('');
+            if (percentage > 0 && compressionStartRef.current) {
+                const elapsed = (Date.now() - compressionStartRef.current) / 1000; // in seconds
+                const totalTime = (elapsed / percentage) * 100;
+                const remaining = totalTime - elapsed;
+                if (remaining > 1) {
+                    setEta(`~ ${formatDuration(remaining)} remaining`);
+                } else {
+                    setEta('');
+                }
+            }
+          });
+      }
       setCompressedVideoBlob(blob);
       setAppState(AppState.DONE);
+      // FIX: Cast window to any to access document property due to missing DOM typings.
+      if ((window as any).document.hidden) {
+        showNotification();
+      }
     } catch (err) {
       console.error(err);
       setError(err instanceof Error ? err.message : 'An unknown error occurred during compression.');
       setAppState(AppState.ERROR);
+    } finally {
+        compressionStartRef.current = null;
+        setEta('');
     }
   };
 
   const handleDownload = () => {
     if (!compressedVideoBlob) return;
     const url = URL.createObjectURL(compressedVideoBlob);
-    // FIX: Use `window.document` to resolve 'document' not found error.
-    const a = window.document.createElement('a');
+    // FIX: Cast window to any to access document property due to missing DOM typings.
+    const a = (window as any).document.createElement('a');
     a.href = url;
-    a.download = `compressed-${videoFile?.name || 'video.mp4'}`;
+    const extension = settings.convertToGif ? 'gif' : 'mp4';
+    a.download = `compressed-${videoFile?.name.split('.').slice(0, -1).join('.') || 'video'}.${extension}`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -147,10 +232,11 @@ const App: React.FC = () => {
   const handleCopyToClipboard = async () => {
     if (!compressedVideoBlob) return;
     try {
-      // FIX: Use `window.ClipboardItem` to resolve 'ClipboardItem' not found error.
-      const item = new window.ClipboardItem({ 'video/mp4': compressedVideoBlob });
-      // FIX: Use `window.navigator` to access the browser's clipboard API.
-      await window.navigator.clipboard.write([item]);
+      const mimeType = settings.convertToGif ? 'image/gif' : 'video/mp4';
+      // FIX: Property 'ClipboardItem' does not exist on type 'Window'. Cast to any as a workaround.
+      const item = new (window as any).ClipboardItem({ [mimeType]: compressedVideoBlob });
+      // FIX: Property 'navigator' does not exist on type 'Window'. Cast to any as a workaround.
+      await (window as any).navigator.clipboard.write([item]);
       setCopyStatus('copied');
       setTimeout(() => setCopyStatus('idle'), 2000);
     } catch (err) {
@@ -163,12 +249,26 @@ const App: React.FC = () => {
     setVideoFile(null);
     setCompressedVideoBlob(null);
     setProgress(0);
+    setProgressMessage('');
     setError(null);
     setThumbnail(null);
     setMetadata(null);
     setAppState(AppState.READY);
-    // FIX: Cast inputFileRef.current to `any` to set its value, as the provided `HTMLInputElement` type seems to be missing the `value` property.
     if (inputFileRef.current) (inputFileRef.current as any).value = "";
+  };
+  
+  const applyPreset = (preset: 'quality' | 'balanced' | 'size') => {
+      if (!videoFile) return;
+      const maxTargetSize = Math.floor(videoFile.size / (1024 * 1024));
+      let newSettings: Partial<CompressionSettings> = {};
+      if (preset === 'quality') {
+          newSettings = { resolution: 720, targetSizeMB: Math.min(12, maxTargetSize) };
+      } else if (preset === 'balanced') {
+          newSettings = { resolution: 720, targetSizeMB: Math.min(8, maxTargetSize) };
+      } else if (preset === 'size') {
+          newSettings = { resolution: 480, targetSizeMB: Math.min(5, maxTargetSize) };
+      }
+      setSettings(s => ({ ...s, ...newSettings, convertToGif: false }));
   };
   
   const renderInitial = () => (
@@ -192,11 +292,33 @@ const App: React.FC = () => {
   const renderDashboard = () => (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
         <div className="space-y-4">
-            <h3 className="text-xl font-semibold text-white">Video Preview</h3>
+            <h3 className="text-xl font-semibold text-white">Video Details</h3>
             {thumbnail && <img src={thumbnail} alt="Video thumbnail" className="rounded-lg w-full" />}
-            <div className="flex justify-between items-center text-gray-300">
-                <span className="truncate pr-4">{videoFile?.name}</span>
-                <span className="font-mono text-white">{formatBytes(videoFile?.size || 0)}</span>
+            <div className="bg-white/5 p-4 rounded-lg space-y-2 text-sm">
+                <div className="flex justify-between items-center text-gray-300">
+                    <span className="font-semibold">Filename:</span>
+                    <span className="truncate pl-4 text-white text-right">{videoFile?.name}</span>
+                </div>
+                <div className="flex justify-between items-center text-gray-300">
+                    <span className="font-semibold">Size:</span>
+                    <span className="font-mono text-white">{formatBytes(videoFile?.size || 0)}</span>
+                </div>
+                {metadata && (
+                    <>
+                        <div className="flex justify-between items-center text-gray-300">
+                            <span className="font-semibold">Duration:</span>
+                            <span className="font-mono text-white">{formatDuration(metadata.duration)}</span>
+                        </div>
+                        <div className="flex justify-between items-center text-gray-300">
+                            <span className="font-semibold">Resolution:</span>
+                            <span className="font-mono text-white">{metadata.width}x{metadata.height}</span>
+                        </div>
+                        <div className="flex justify-between items-center text-gray-300">
+                            <span className="font-semibold">Frame Rate:</span>
+                            <span className="font-mono text-white">{metadata.fps.toFixed(2)} FPS</span>
+                        </div>
+                    </>
+                )}
             </div>
              <button onClick={handleReset} className="w-full flex items-center justify-center gap-2 py-2 text-sm text-red-300 bg-red-500/10 hover:bg-red-500/20 rounded-lg transition-colors">
                 <TrashIcon className="w-4 h-4" /> Remove Video
@@ -204,36 +326,87 @@ const App: React.FC = () => {
         </div>
         <div className="space-y-6 bg-white/5 p-6 rounded-lg">
             <h3 className="text-xl font-semibold text-white">Compression Settings</h3>
-            <div>
-                <label htmlFor="targetSize" className="flex justify-between text-sm font-medium text-gray-200">
-                    <span>Target Size (MB)</span>
-                    <span className="font-bold text-blue-300">{settings.targetSizeMB} MB</span>
-                </label>
-                <input id="targetSize" type="range" min="1" max={Math.max(1, Math.floor((videoFile?.size || 0) / (1024*1024)))} step="1" value={settings.targetSizeMB} 
-                    // FIX: Cast e.target to HTMLInputElement to access the 'value' property.
-                    onChange={(e) => setSettings({...settings, targetSizeMB: parseInt((e.target as HTMLInputElement).value)})} 
-                    className="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer" />
+             <div>
+                <label className="block text-sm font-medium text-gray-200 mb-2">Presets</label>
+                <div className="grid grid-cols-3 gap-2">
+                    <button onClick={() => applyPreset('quality')} className="text-xs py-2 bg-blue-500/20 text-blue-200 rounded-md hover:bg-blue-500/40 transition-colors">Best Quality</button>
+                    <button onClick={() => applyPreset('balanced')} className="text-xs py-2 bg-blue-500/20 text-blue-200 rounded-md hover:bg-blue-500/40 transition-colors">Balanced</button>
+                    <button onClick={() => applyPreset('size')} className="text-xs py-2 bg-blue-500/20 text-blue-200 rounded-md hover:bg-blue-500/40 transition-colors">Smallest Size</button>
+                </div>
             </div>
-            <div>
-                <label htmlFor="resolution" className="block text-sm font-medium text-gray-200">Resolution</label>
-                <select id="resolution" value={settings.resolution} 
-                    // FIX: Cast e.target to HTMLSelectElement to access the 'value' property.
-                    onChange={(e) => setSettings({...settings, resolution: parseInt((e.target as HTMLSelectElement).value)})} 
-                    className="mt-1 block w-full bg-gray-700 border-gray-600 text-white rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500">
-                    <option value="1080">1080p (Full HD)</option>
-                    <option value="720">720p (HD)</option>
-                    <option value="480">480p (SD)</option>
-                </select>
+             <div className="flex items-center">
+                <input id="convertToGif" type="checkbox" checked={settings.convertToGif} 
+                    // FIX: Cast event.target to any to access 'checked' property due to incomplete DOM typings.
+                    onChange={(e) => setSettings({...settings, convertToGif: (e.target as any).checked})} 
+                    className="h-4 w-4 text-purple-500 bg-gray-700 border-gray-600 rounded focus:ring-purple-500" />
+                <label htmlFor="convertToGif" className="ml-2 block text-sm font-bold text-purple-300">Convert to GIF</label>
             </div>
-            <div className="flex items-center">
-                <input id="removeAudio" type="checkbox" checked={settings.removeAudio} 
-                    // FIX: Cast e.target to HTMLInputElement to access the 'checked' property.
-                    onChange={(e) => setSettings({...settings, removeAudio: (e.target as HTMLInputElement).checked})} 
-                    className="h-4 w-4 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500" />
-                <label htmlFor="removeAudio" className="ml-2 block text-sm text-gray-200">Remove Audio</label>
+            {settings.convertToGif ? (
+              <div className="space-y-4 border-t border-white/10 pt-4">
+                  <div>
+                      <label htmlFor="gifResolution" className="block text-sm font-medium text-gray-200">Resolution (Width)</label>
+                      <select id="gifResolution" value={settings.gifResolution} 
+                          // FIX: Cast event.target to any to access 'value' property due to incomplete DOM typings.
+                          onChange={(e) => setSettings({...settings, gifResolution: parseInt((e.target as any).value)})} 
+                          className="mt-1 block w-full bg-gray-700 border-gray-600 text-white rounded-md shadow-sm focus:ring-purple-500 focus:border-purple-500">
+                          <option value="480">480px</option>
+                          <option value="360">360px</option>
+                      </select>
+                  </div>
+                   <div>
+                      <label htmlFor="gifFps" className="block text-sm font-medium text-gray-200">Frame Rate (FPS)</label>
+                      <select id="gifFps" value={settings.gifFps} 
+                          // FIX: Cast event.target to any to access 'value' property due to incomplete DOM typings.
+                          onChange={(e) => setSettings({...settings, gifFps: parseInt((e.target as any).value)})} 
+                          className="mt-1 block w-full bg-gray-700 border-gray-600 text-white rounded-md shadow-sm focus:ring-purple-500 focus:border-purple-500">
+                          <option value="15">15 FPS (Recommended)</option>
+                          <option value="10">10 FPS</option>
+                      </select>
+                  </div>
+              </div>
+            ) : (
+              <div className="space-y-4 border-t border-white/10 pt-4">
+                  <div>
+                      <label htmlFor="targetSize" className="flex justify-between text-sm font-medium text-gray-200">
+                          <span>Target Size (MB)</span>
+                          <span className="font-bold text-blue-300">{settings.targetSizeMB} MB</span>
+                      </label>
+                      <input id="targetSize" type="range" min="1" max={Math.max(1, Math.floor((videoFile?.size || 0) / (1024*1024)))} step="1" value={settings.targetSizeMB} 
+                          // FIX: Cast event.target to any to access 'value' property due to incomplete DOM typings.
+                          onChange={(e) => setSettings({...settings, targetSizeMB: parseInt((e.target as any).value)})} 
+                          className="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer" />
+                  </div>
+                  <div>
+                      <label htmlFor="resolution" className="block text-sm font-medium text-gray-200">Resolution</label>
+                      <select id="resolution" value={settings.resolution} 
+                          // FIX: Cast event.target to any to access 'value' property due to incomplete DOM typings.
+                          onChange={(e) => setSettings({...settings, resolution: parseInt((e.target as any).value)})} 
+                          className="mt-1 block w-full bg-gray-700 border-gray-600 text-white rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500">
+                          <option value="1080">1080p (Full HD)</option>
+                          <option value="720">720p (HD)</option>
+                          <option value="480">480p (SD)</option>
+                      </select>
+                  </div>
+                  <div className="flex items-center">
+                      <input id="removeAudio" type="checkbox" checked={settings.removeAudio} 
+                          // FIX: Cast event.target to any to access 'checked' property due to incomplete DOM typings.
+                          onChange={(e) => setSettings({...settings, removeAudio: (e.target as any).checked})} 
+                          className="h-4 w-4 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500" />
+                      <label htmlFor="removeAudio" className="ml-2 block text-sm text-gray-200">Remove Audio</label>
+                  </div>
+              </div>
+            )}
+             <div className="space-y-4 border-t border-white/10 pt-4">
+                <label className="block text-sm font-medium text-gray-200">Trim Video (Optional)</label>
+                <div className="grid grid-cols-2 gap-4">
+                    {/* FIX: Cast event.target to any to access 'value' property due to incomplete DOM typings. */}
+                    <input type="text" placeholder="Start: 00:00:00" value={settings.startTime} onChange={(e) => setSettings({...settings, startTime: (e.target as any).value})} className="bg-gray-700 text-white rounded-md text-sm p-2 focus:ring-blue-500 focus:border-blue-500" />
+                    {/* FIX: Cast event.target to any to access 'value' property due to incomplete DOM typings. */}
+                    <input type="text" placeholder={`End: ${metadata ? formatDuration(metadata.duration) : '00:00:00'}`} value={settings.endTime} onChange={(e) => setSettings({...settings, endTime: (e.target as any).value})} className="bg-gray-700 text-white rounded-md text-sm p-2 focus:ring-blue-500 focus:border-blue-500" />
+                </div>
             </div>
             <button onClick={handleCompress} className="w-full px-10 py-4 text-xl font-semibold text-white bg-blue-600 rounded-xl shadow-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-900 focus:ring-blue-500 transition-all transform hover:scale-105">
-                Compress Video
+                {settings.convertToGif ? 'Convert to GIF' : 'Compress Video'}
             </button>
         </div>
     </div>
@@ -242,11 +415,17 @@ const App: React.FC = () => {
   const renderProcessingState = () => (
     <div className="text-center py-12">
         <SpinnerIcon className="w-12 h-12 mx-auto animate-spin mb-6 text-white" />
-        <p className="text-2xl font-semibold text-white">Compressing video...</p>
+        <p className="text-2xl font-semibold text-white">
+          {settings.convertToGif ? 'Converting to GIF...' : 'Compressing video...'}
+        </p>
+        <p className="text-sm text-gray-300 mt-1">{progressMessage}</p>
         <div className="w-full bg-white/10 rounded-full mt-6 h-4 overflow-hidden">
             <div className="bg-blue-500 h-4 rounded-full transition-all duration-300" style={{ width: `${progress}%` }}></div>
         </div>
-        <p className="text-xl font-mono text-white mt-4">{progress}%</p>
+        <div className="flex justify-between items-center mt-4">
+            <p className="text-md font-mono text-gray-300">{eta}</p>
+            <p className="text-xl font-mono text-white">{progress}%</p>
+        </div>
     </div>
   );
 
@@ -259,8 +438,12 @@ const App: React.FC = () => {
                 <p className="text-md text-gray-300 mt-3">Size: <span className="font-medium text-white">{videoFile ? formatBytes(videoFile.size) : 'N/A'}</span></p>
             </div>
             <div>
-                <h3 className="text-xl font-semibold text-white mb-3">Compressed Video</h3>
-                <video src={compressedVideoBlob ? URL.createObjectURL(compressedVideoBlob) : ''} controls className="w-full rounded-lg shadow-lg bg-black"></video>
+                <h3 className="text-xl font-semibold text-white mb-3">Compressed {settings.convertToGif ? 'GIF' : 'Video'}</h3>
+                {settings.convertToGif ? (
+                    <img src={compressedVideoBlob ? URL.createObjectURL(compressedVideoBlob) : ''} className="w-full rounded-lg shadow-lg bg-black" alt="Compressed output" />
+                ) : (
+                    <video src={compressedVideoBlob ? URL.createObjectURL(compressedVideoBlob) : ''} controls className="w-full rounded-lg shadow-lg bg-black"></video>
+                )}
                 <p className="text-md text-gray-300 mt-3">Size: <span className="font-medium text-white">{compressedVideoBlob ? formatBytes(compressedVideoBlob.size) : 'N/A'}</span></p>
             </div>
         </div>
@@ -281,7 +464,7 @@ const App: React.FC = () => {
                 {copyStatus === 'copied' ? 'Copied!' : 'Copy to Clipboard'}
             </button>
             <button onClick={handleReset} className="px-6 py-3 text-lg font-semibold text-gray-200 bg-white/10 rounded-xl shadow-lg hover:bg-white/20 transition-all transform hover:scale-105">
-                Compress Another
+                Process Another
             </button>
         </div>
     </div>
