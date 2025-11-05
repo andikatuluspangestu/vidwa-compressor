@@ -1,0 +1,5 @@
+{
+  "name": "Video Compressor for WhatsApp",
+  "description": "An application to compress raw video files to HD quality suitable for uploading to WhatsApp Story, powered by ffmpeg.wasm.",
+  "requestFramePermissions": []
+}
