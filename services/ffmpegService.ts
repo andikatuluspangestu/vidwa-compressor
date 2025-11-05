@@ -72,8 +72,10 @@ export async function compressVideo(
 
     const { resolution, removeAudio, targetSizeMB } = settings;
     
+    // Total desired bitrate in kbps. (Size in MB * 1024 KB/MB * 8 bits/byte) / duration in seconds
+    const totalBitrate = (targetSizeMB * 1024 * 8) / duration;
     const audioBitrate = removeAudio ? 0 : 128; // in kbps
-    const targetVideoBitrate = Math.floor(((targetSizeMB * 1024 * 8) / duration) - audioBitrate);
+    const targetVideoBitrate = Math.floor(totalBitrate - audioBitrate);
     
     if (targetVideoBitrate <= 0) {
         throw new Error('Target size is too small for the video duration. Please choose a larger size or compress without audio.');
@@ -84,48 +86,38 @@ export async function compressVideo(
     
     await ffmpeg.writeFile(inputFileName, await fetchFile(videoFile));
 
-    const commonArgs = [
+    // Use a more reliable single-pass encoding
+    const command = [
         '-i', inputFileName,
         '-c:v', 'libx264',
-        '-preset', 'medium',
+        '-preset', 'medium', // 'medium' is a good balance of speed and quality
         '-b:v', `${targetVideoBitrate}k`,
+        '-maxrate', `${Math.floor(targetVideoBitrate * 1.2)}k`, // Prevent bitrate spikes
+        '-bufsize', `${Math.floor(targetVideoBitrate * 1.5)}k`, // VBV buffer size
         '-vf', `scale=-2:${resolution}`,
         '-y',
     ];
 
-    const pass1Command = [ ...commonArgs, '-pass', '1', '-f', 'mp4', '/dev/null'];
     if (removeAudio) {
-      pass1Command.splice(5, 0, '-an');
-    }
-
-    const pass2Command = [ ...commonArgs, '-pass', '2' ];
-    if (removeAudio) {
-      pass2Command.splice(5, 0, '-an');
+      command.push('-an');
     } else {
-      pass2Command.push('-c:a', 'aac', '-b:a', '128k');
+      command.push('-c:a', 'aac', '-b:a', `${audioBitrate}k`);
     }
-    pass2Command.push(outputFileName);
 
-    let currentPass: 1 | 2 = 1;
+    command.push(outputFileName);
 
     const progressListener = ({ progress }) => {
         const percentage = Math.round(Math.min(progress, 1) * 100);
-        const totalPercentage = currentPass === 1
-            ? Math.round(percentage * 0.3)
-            : 30 + Math.round(percentage * 0.7);
-        onProgress({ percentage: totalPercentage });
+        onProgress({ percentage });
     };
 
     ffmpeg.on('progress', progressListener);
     
     try {
-        await ffmpeg.exec(pass1Command);
-        currentPass = 2;
-        await ffmpeg.exec(pass2Command);
+        await ffmpeg.exec(command);
     } finally {
         ffmpeg.off('progress', progressListener);
         await ffmpeg.deleteFile(inputFileName);
-        // Don't delete outputFileName, we need to read it
     }
   
     const data = await ffmpeg.readFile(outputFileName);

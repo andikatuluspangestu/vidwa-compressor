@@ -54,8 +54,10 @@ const App: React.FC = () => {
 
   const generateThumbnail = (file: File): Promise<string> => {
     return new Promise((resolve) => {
-      const video = document.createElement('video');
-      const canvas = document.createElement('canvas');
+      // FIX: Use `window.document` to resolve 'document' not found error.
+      const video = window.document.createElement('video');
+      // FIX: Use `window.document` to resolve 'document' not found error.
+      const canvas = window.document.createElement('canvas');
       video.src = URL.createObjectURL(file);
       video.onloadeddata = () => {
         video.currentTime = 1;
@@ -96,7 +98,8 @@ const App: React.FC = () => {
   }, []);
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
+    // FIX: Cast event.target to HTMLInputElement to access the 'files' property.
+    const file = (event.target as HTMLInputElement).files?.[0];
     handleFileSelect(file || null);
   };
   
@@ -108,7 +111,8 @@ const App: React.FC = () => {
   
   const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
       handleDragEvents(e, false);
-      const file = e.dataTransfer.files?.[0];
+      // FIX: Cast e.dataTransfer to `any` to access the `files` property, which is missing from the default `DataTransfer` type in this environment.
+      const file = (e.dataTransfer as any).files?.[0];
       handleFileSelect(file || null);
   };
 
@@ -132,7 +136,8 @@ const App: React.FC = () => {
   const handleDownload = () => {
     if (!compressedVideoBlob) return;
     const url = URL.createObjectURL(compressedVideoBlob);
-    const a = document.createElement('a');
+    // FIX: Use `window.document` to resolve 'document' not found error.
+    const a = window.document.createElement('a');
     a.href = url;
     a.download = `compressed-${videoFile?.name || 'video.mp4'}`;
     a.click();
@@ -142,8 +147,10 @@ const App: React.FC = () => {
   const handleCopyToClipboard = async () => {
     if (!compressedVideoBlob) return;
     try {
-      const item = new ClipboardItem({ 'video/mp4': compressedVideoBlob });
-      await navigator.clipboard.write([item]);
+      // FIX: Use `window.ClipboardItem` to resolve 'ClipboardItem' not found error.
+      const item = new window.ClipboardItem({ 'video/mp4': compressedVideoBlob });
+      // FIX: Use `window.navigator` to access the browser's clipboard API.
+      await window.navigator.clipboard.write([item]);
       setCopyStatus('copied');
       setTimeout(() => setCopyStatus('idle'), 2000);
     } catch (err) {
@@ -160,7 +167,8 @@ const App: React.FC = () => {
     setThumbnail(null);
     setMetadata(null);
     setAppState(AppState.READY);
-    if (inputFileRef.current) inputFileRef.current.value = "";
+    // FIX: Cast inputFileRef.current to `any` to set its value, as the provided `HTMLInputElement` type seems to be missing the `value` property.
+    if (inputFileRef.current) (inputFileRef.current as any).value = "";
   };
   
   const renderInitial = () => (
@@ -201,18 +209,27 @@ const App: React.FC = () => {
                     <span>Target Size (MB)</span>
                     <span className="font-bold text-blue-300">{settings.targetSizeMB} MB</span>
                 </label>
-                <input id="targetSize" type="range" min="1" max={Math.max(1, Math.floor((videoFile?.size || 0) / (1024*1024)))} step="1" value={settings.targetSizeMB} onChange={(e) => setSettings({...settings, targetSizeMB: parseInt(e.target.value)})} className="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer" />
+                <input id="targetSize" type="range" min="1" max={Math.max(1, Math.floor((videoFile?.size || 0) / (1024*1024)))} step="1" value={settings.targetSizeMB} 
+                    // FIX: Cast e.target to HTMLInputElement to access the 'value' property.
+                    onChange={(e) => setSettings({...settings, targetSizeMB: parseInt((e.target as HTMLInputElement).value)})} 
+                    className="w-full h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer" />
             </div>
             <div>
                 <label htmlFor="resolution" className="block text-sm font-medium text-gray-200">Resolution</label>
-                <select id="resolution" value={settings.resolution} onChange={(e) => setSettings({...settings, resolution: parseInt(e.target.value)})} className="mt-1 block w-full bg-gray-700 border-gray-600 text-white rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500">
+                <select id="resolution" value={settings.resolution} 
+                    // FIX: Cast e.target to HTMLSelectElement to access the 'value' property.
+                    onChange={(e) => setSettings({...settings, resolution: parseInt((e.target as HTMLSelectElement).value)})} 
+                    className="mt-1 block w-full bg-gray-700 border-gray-600 text-white rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500">
                     <option value="1080">1080p (Full HD)</option>
                     <option value="720">720p (HD)</option>
                     <option value="480">480p (SD)</option>
                 </select>
             </div>
             <div className="flex items-center">
-                <input id="removeAudio" type="checkbox" checked={settings.removeAudio} onChange={(e) => setSettings({...settings, removeAudio: e.target.checked})} className="h-4 w-4 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500" />
+                <input id="removeAudio" type="checkbox" checked={settings.removeAudio} 
+                    // FIX: Cast e.target to HTMLInputElement to access the 'checked' property.
+                    onChange={(e) => setSettings({...settings, removeAudio: (e.target as HTMLInputElement).checked})} 
+                    className="h-4 w-4 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500" />
                 <label htmlFor="removeAudio" className="ml-2 block text-sm text-gray-200">Remove Audio</label>
             </div>
             <button onClick={handleCompress} className="w-full px-10 py-4 text-xl font-semibold text-white bg-blue-600 rounded-xl shadow-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-900 focus:ring-blue-500 transition-all transform hover:scale-105">
