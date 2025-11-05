@@ -107,23 +107,57 @@ const App: React.FC = () => {
     const [compressedSize, setCompressedSize] = useState(0);
     const [error, setError] = useState<string | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const loadingIntervalRef = useRef<number | null>(null);
 
     useEffect(() => {
         const initFfmpeg = async () => {
             try {
                 setAppState(AppState.LOADING_FFMPEG);
                 setMessage('Mengunduh komponen inti...');
-                await loadFfmpeg(setLoadingProgress);
-                setAppState(AppState.READY);
-                setMessage('');
+                
+                // Simulate progress since real progress tracking is brittle
+                setLoadingProgress(0);
+                const SIMULATED_DURATION_MS = 15000;
+                const INTERVAL_MS = 100;
+                const MAX_SIMULATED_PROGRESS = 95;
+                
+                loadingIntervalRef.current = window.setInterval(() => {
+                    setLoadingProgress(prev => {
+                        const newProgress = prev + (MAX_SIMULATED_PROGRESS / (SIMULATED_DURATION_MS / INTERVAL_MS));
+                        if (newProgress >= MAX_SIMULATED_PROGRESS) {
+                            if (loadingIntervalRef.current) clearInterval(loadingIntervalRef.current);
+                            return MAX_SIMULATED_PROGRESS;
+                        }
+                        return newProgress;
+                    });
+                }, INTERVAL_MS);
+
+                await loadFfmpeg();
+
+                if (loadingIntervalRef.current) clearInterval(loadingIntervalRef.current);
+                setLoadingProgress(100);
+
+                setTimeout(() => {
+                    setAppState(AppState.READY);
+                    setMessage('');
+                }, 500);
+
             } catch (err) {
+                if (loadingIntervalRef.current) clearInterval(loadingIntervalRef.current);
                 console.error('Failed to load ffmpeg', err);
                 setError('Gagal memuat komponen kompresi. Coba muat ulang halaman.');
                 setAppState(AppState.ERROR);
             }
         };
         initFfmpeg();
+
+        return () => {
+            if (loadingIntervalRef.current) {
+                clearInterval(loadingIntervalRef.current);
+            }
+        };
     }, []);
+
 
     const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
         const file = event.target.files?.[0];
@@ -132,7 +166,6 @@ const App: React.FC = () => {
             setOriginalSize(file.size);
             setError(null);
             
-            // Get video duration to calculate progress more accurately
             const videoElement = document.createElement('video');
             videoElement.preload = 'metadata';
             videoElement.onloadedmetadata = () => {
@@ -195,7 +228,7 @@ const App: React.FC = () => {
             case AppState.LOADING_FFMPEG:
                 return (
                     <div className="w-full">
-                        <ProcessingView progress={loadingProgress} message={message} />
+                        <ProcessingView progress={Math.round(loadingProgress)} message={message} />
                         <p className="text-center text-gray-400 text-sm mt-4 max-w-xs mx-auto">
                             Proses ini hanya terjadi sekali saat membuka web. Harap tunggu sebentar (±32 MB).
                         </p>
