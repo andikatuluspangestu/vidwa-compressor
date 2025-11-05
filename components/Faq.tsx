@@ -39,6 +39,14 @@ const faqData = [
         answer: "While there's no official size limit, videos under 16MB are generally recommended for status updates. Our compressor targets a size around 8-10MB by default to ensure a good balance between quality and compatibility."
     },
     {
+        question: "Why is the compression taking so long?",
+        answer: "Compression time depends on the video's size, duration, and your computer's processing power. Larger files naturally take longer. Since all processing is done on your device, it's normal for a large, high-quality video to take several minutes."
+    },
+    {
+        question: "Which browsers are supported?",
+        answer: "This application uses modern web technologies (WebAssembly) and works best on the latest versions of desktop browsers like Google Chrome, Microsoft Edge, Safari, and Mozilla Firefox. It may not work correctly on older browsers or some mobile browsers."
+    },
+    {
         question: "Is my data safe?",
         answer: "Absolutely. Your videos are never uploaded to any server. All the magic happens on your own computer using the power of your web browser. Nothing leaves your device."
     },

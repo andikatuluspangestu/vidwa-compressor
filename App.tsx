@@ -15,6 +15,8 @@ const DEFAULT_SETTINGS = {
   gifResolution: 480,
 };
 
+const MAX_FILE_SIZE = 500 * 1024 * 1024; // 500 MB
+
 interface CompressionSettings {
   resolution: number;
   removeAudio: boolean;
@@ -108,10 +110,18 @@ const App: React.FC = () => {
   };
 
   const handleFileSelect = useCallback(async (file: File | null) => {
-    if (!file || !file.type.startsWith('video/')) {
+    if (!file) return;
+
+    if (!file.type.startsWith('video/')) {
         setError("Invalid file type. Please select a video file.");
         return;
     }
+    
+    if (file.size > MAX_FILE_SIZE) {
+        setError(`File is too large (${formatBytes(file.size)}). Please select a video under 500 MB.`);
+        return;
+    }
+
     setError(null);
     setVideoFile(file);
     setCompressedVideoBlob(null);
@@ -283,7 +293,7 @@ const App: React.FC = () => {
             <span className="mt-4 text-xl font-medium text-gray-200">
                 Drag & Drop or Click to Upload
             </span>
-            <p className="text-md text-gray-400 mt-1">MP4, MOV, AVI, etc.</p>
+            <p className="text-md text-gray-400 mt-1">MP4, MOV, AVI, etc. (Max 500 MB)</p>
         </label>
         <input ref={inputFileRef} id="file-upload" type="file" className="sr-only" onChange={handleFileChange} accept="video/*" />
     </div>

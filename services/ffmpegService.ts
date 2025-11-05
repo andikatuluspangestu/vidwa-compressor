@@ -3,229 +3,223 @@ import { fetchFile, toBlobURL } from '@ffmpeg/util';
 
 let ffmpeg: FFmpeg | null = null;
 
-const FFMPEG_CORE_VERSION = '0.12.6';
-const BASE_URL = `https://unpkg.com/@ffmpeg/core@${FFMPEG_CORE_VERSION}/dist/esm`;
+export interface VideoInfo {
+  duration: number;
+  width: number;
+  height: number;
+  fps: number;
+}
 
-export async function loadFfmpeg(): Promise<void> {
-  if (ffmpeg && ffmpeg.loaded) {
+export const loadFfmpeg = async (): Promise<void> => {
+  if (ffmpeg) {
     return;
   }
-  
   ffmpeg = new FFmpeg();
-
-  ffmpeg.on('log', ({ message }) => {
-    // console.log(message); // Can be noisy, disable for production builds
-  });
   
+  // Base URL for FFmpeg core files
+  const baseURL = 'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd';
+
   await ffmpeg.load({
-      coreURL: await toBlobURL(`${BASE_URL}/ffmpeg-core.js`, 'text/javascript'),
-      wasmURL: await toBlobURL(`${BASE_URL}/ffmpeg-core.wasm`, 'application/wasm'),
+    coreURL: await toBlobURL(`${baseURL}/ffmpeg-core.js`, 'text/javascript'),
+    wasmURL: await toBlobURL(`${baseURL}/ffmpeg-core.wasm`, 'application/wasm'),
   });
-}
+};
 
-export interface VideoInfo {
-    duration: number;
-    width: number;
-    height: number;
-    fps: number;
-}
+export const getVideoMetadata = async (file: File): Promise<VideoInfo> => {
+  if (!ffmpeg) {
+    await loadFfmpeg();
+  }
+  // This non-null assertion is safe because loadFfmpeg initializes it.
+  const ffmpegInstance = ffmpeg!;
 
-export async function getVideoMetadata(videoFile: File): Promise<VideoInfo> {
-    if (!ffmpeg || !ffmpeg.loaded) {
-        throw new Error('FFMPEG is not loaded.');
+  const fileName = 'input.video';
+  await ffmpegInstance.writeFile(fileName, await fetchFile(file));
+
+  let duration = 0;
+  let width = 0;
+  let height = 0;
+  let fps = 0;
+
+  const logs: string[] = [];
+  const logListener = ({ type, message }: {type: string, message: string}) => {
+    if (type === 'stderr') {
+      logs.push(message);
     }
+  };
+  ffmpegInstance.on('log', logListener);
 
-    const inputFileName = `meta_${Date.now()}_${videoFile.name}`;
-    await ffmpeg.writeFile(inputFileName, await fetchFile(videoFile));
+  try {
+    // This command will fail, but that's expected. The metadata is in stderr logs.
+    await ffmpegInstance.exec(['-i', fileName]);
+  } catch (e) {
+    // ffmpeg throws an error when called with -i and no output, which is expected.
+  }
 
-    let duration = 0;
-    let width = 0;
-    let height = 0;
-    let fps = 0;
-    
-    const logListener = ({ message }: { message: string }) => {
-        const durationMatch = message.match(/Duration: (\d{2}):(\d{2}):(\d{2})\.(\d+)/);
-        if (durationMatch) {
-            const hours = parseInt(durationMatch[1], 10);
-            const minutes = parseInt(durationMatch[2], 10);
-            const seconds = parseInt(durationMatch[3], 10);
-            const deciseconds = parseInt(durationMatch[4], 10);
-            duration = hours * 3600 + minutes * 60 + seconds + deciseconds / 100;
-        }
-
-        const streamMatch = message.match(/Stream #.*: Video: .*, (\d{3,5})x(\d{3,5}).*, (\d{1,3}(\.\d{1,2})?)\s+fps/);
-        if (streamMatch) {
-            width = parseInt(streamMatch[1], 10);
-            height = parseInt(streamMatch[2], 10);
-            fps = parseFloat(streamMatch[3]);
-        }
-    };
-    ffmpeg.on('log', logListener);
-
-    try {
-        await ffmpeg.exec(['-i', inputFileName, '-hide_banner']);
-    } catch (e) {
-        // exec throws an error as it's not a complete transcode, but metadata is still logged.
-    } finally {
-        ffmpeg.off('log', logListener);
-        await ffmpeg.deleteFile(inputFileName);
-    }
-    
-    if (duration === 0) {
-        throw new Error("Could not determine video duration from its metadata.");
-    }
-
-    return { duration, width, height, fps };
-}
-
-
-export async function compressVideo(
-  videoFile: File,
-  duration: number,
-  settings: { 
-    resolution: number; 
-    removeAudio: boolean; 
-    targetSizeMB: number;
-    startTime: string;
-    endTime: string;
-  },
-  onProgress: (details: { percentage: number }) => void
-): Promise<Blob> {
-    if (!ffmpeg || !ffmpeg.loaded) {
-        throw new Error('FFMPEG is not loaded.');
-    }
-
-    const { resolution, removeAudio, targetSizeMB, startTime, endTime } = settings;
-    
-    let effectiveDuration = duration;
-    if (startTime && endTime) {
-        const startSeconds = startTime.split(':').reduce((acc, time) => (60 * acc) + +time, 0);
-        const endSeconds = endTime.split(':').reduce((acc, time) => (60 * acc) + +time, 0);
-        effectiveDuration = endSeconds - startSeconds;
-    }
-
-    if (effectiveDuration <= 0) {
-        effectiveDuration = duration;
-    }
-
-    const totalBitrate = (targetSizeMB * 1024 * 8) / effectiveDuration;
-    const audioBitrate = removeAudio ? 0 : 128;
-    const targetVideoBitrate = Math.floor(totalBitrate - audioBitrate);
-    
-    if (targetVideoBitrate <= 0) {
-        throw new Error('Target size is too small for the video duration. Please choose a larger size or compress without audio.');
-    }
-
-    const inputFileName = 'input.mp4';
-    const outputFileName = 'output.mp4';
-    
-    await ffmpeg.writeFile(inputFileName, await fetchFile(videoFile));
-
-    const command: string[] = [];
-    if (startTime) command.push('-ss', startTime);
-    if (endTime) command.push('-to', endTime);
-    
-    command.push(
-        '-i', inputFileName,
-        '-c:v', 'libx264',
-        '-preset', 'medium',
-        '-b:v', `${targetVideoBitrate}k`,
-        '-maxrate', `${Math.floor(targetVideoBitrate * 1.2)}k`,
-        '-bufsize', `${Math.floor(targetVideoBitrate * 1.5)}k`,
-        '-vf', `scale=-2:${resolution}`,
-        '-y'
-    );
-
-    if (removeAudio) {
-      command.push('-an');
-    } else {
-      command.push('-c:a', 'aac', '-b:a', `${audioBitrate}k`);
-    }
-
-    command.push(outputFileName);
-
-    const progressListener = ({ progress }) => {
-        const percentage = Math.round(Math.min(progress, 1) * 100);
-        onProgress({ percentage });
-    };
-
-    ffmpeg.on('progress', progressListener);
-    
-    try {
-        await ffmpeg.exec(command);
-    } finally {
-        ffmpeg.off('progress', progressListener);
-        await ffmpeg.deleteFile(inputFileName);
-    }
+  const output = logs.join('\n');
   
-    const data = await ffmpeg.readFile(outputFileName);
-    await ffmpeg.deleteFile(outputFileName);
+  const durationMatch = output.match(/Duration: (\d{2}):(\d{2}):(\d{2})\.\d{2}/);
+  if (durationMatch) {
+    const hours = parseInt(durationMatch[1], 10);
+    const minutes = parseInt(durationMatch[2], 10);
+    const seconds = parseInt(durationMatch[3], 10);
+    duration = hours * 3600 + minutes * 60 + seconds;
+  }
 
-    return new Blob([(data as Uint8Array).buffer], { type: 'video/mp4' });
+  const streamMatch = output.match(/Stream #\d:\d.*: Video: .* (\d+)x(\d+).* (\d+(\.\d+)?) fps/);
+  if (streamMatch) {
+    width = parseInt(streamMatch[1], 10);
+    height = parseInt(streamMatch[2], 10);
+    fps = parseFloat(streamMatch[3]);
+  }
+
+  // Reset log handler
+  ffmpegInstance.off('log', logListener);
+
+  await ffmpegInstance.deleteFile(fileName);
+
+  if (duration === 0 || width === 0) {
+    console.error("FFmpeg output:", output);
+    throw new Error("Could not parse video metadata. The file might be corrupted or in an unsupported format.");
+  }
+
+  return { duration, width, height, fps };
+};
+
+interface VideoCompressionSettings {
+  resolution: number;
+  removeAudio: boolean;
+  targetSizeMB: number;
+  startTime: string;
+  endTime: string;
 }
 
-export async function convertToGif(
-  videoFile: File,
-  settings: {
-    resolution: number;
-    fps: number;
-    startTime: string;
-    endTime: string;
-  },
-  onProgress: (details: { percentage: number; step: string }) => void
-): Promise<Blob> {
-    if (!ffmpeg || !ffmpeg.loaded) {
-        throw new Error('FFMPEG is not loaded.');
-    }
+export const compressVideo = async (
+  file: File,
+  duration: number,
+  settings: VideoCompressionSettings,
+  onProgress: (progress: { percentage: number }) => void
+): Promise<Blob> => {
+  if (!ffmpeg) {
+    await loadFfmpeg();
+  }
+  const ffmpegInstance = ffmpeg!;
 
-    const { resolution, fps, startTime, endTime } = settings;
-    const inputFileName = 'input.mp4';
-    const paletteFileName = 'palette.png';
-    const outputFileName = 'output.gif';
-    
-    await ffmpeg.writeFile(inputFileName, await fetchFile(videoFile));
-    
-    const paletteCommand: string[] = [];
-    if (startTime) paletteCommand.push('-ss', startTime);
-    if (endTime) paletteCommand.push('-to', endTime);
-    paletteCommand.push(
-        '-i', inputFileName,
-        '-vf', `fps=${fps},scale=${resolution}:-1:flags=lanczos,palettegen`,
-        '-y',
-        paletteFileName
-    );
+  const { resolution, removeAudio, targetSizeMB, startTime, endTime } = settings;
 
-    onProgress({ percentage: 0, step: 'Step 1/2: Generating color palette...' });
-    await ffmpeg.exec(paletteCommand);
-    onProgress({ percentage: 50, step: 'Step 1/2: Palette generated.' });
+  const totalBitrate = (targetSizeMB * 1024 * 8) / duration; // in kbit/s
 
-    const gifCommand: string[] = [];
-    if (startTime) gifCommand.push('-ss', startTime);
-    if (endTime) gifCommand.push('-to', endTime);
-    gifCommand.push(
-        '-i', inputFileName,
-        '-i', paletteFileName,
-        '-filter_complex', `fps=${fps},scale=${resolution}:-1:flags=lanczos[x];[x][1:v]paletteuse`,
-        '-y',
-        outputFileName
-    );
+  const audioBitrate = removeAudio ? 0 : 128; // kbit/s, a reasonable default
+  const videoBitrate = totalBitrate - audioBitrate;
 
-    const progressListener = ({ progress }) => {
-        const percentage = 50 + Math.round(Math.min(progress, 1) * 50);
-        onProgress({ percentage, step: 'Step 2/2: Creating GIF...' });
-    };
-    ffmpeg.on('progress', progressListener);
+  if (videoBitrate <= 0) {
+    throw new Error(`Target size is too small for the video duration. Try increasing the target size.`);
+  }
 
-    try {
-        await ffmpeg.exec(gifCommand);
-    } finally {
-        ffmpeg.off('progress', progressListener);
-        await ffmpeg.deleteFile(inputFileName);
-        await ffmpeg.deleteFile(paletteFileName);
-    }
+  const inputFilename = 'input.video';
+  const outputFilename = 'output.mp4';
+  await ffmpegInstance.writeFile(inputFilename, await fetchFile(file));
 
-    const data = await ffmpeg.readFile(outputFileName);
-    await ffmpeg.deleteFile(outputFileName);
+  const progressListener = ({ progress }: { progress: number }) => {
+    // Progress can sometimes exceed 1, clamp it.
+    onProgress({ percentage: Math.round(Math.min(progress, 1) * 100) });
+  };
+  ffmpegInstance.on('progress', progressListener);
 
-    return new Blob([(data as Uint8Array).buffer], { type: 'image/gif' });
+  const args = ['-y']; // Overwrite output file if it exists
+
+  if (startTime) {
+    args.push('-ss', startTime);
+  }
+  
+  args.push('-i', inputFilename);
+
+  if (endTime) {
+    args.push('-to', endTime);
+  }
+
+  args.push(
+    '-c:v', 'libx264',
+    '-b:v', `${Math.round(videoBitrate)}k`,
+    '-preset', 'medium',
+    '-vf', `scale=-2:${resolution}`,
+    '-movflags', '+faststart',
+  );
+
+  if (removeAudio) {
+    args.push('-an');
+  } else {
+    args.push('-c:a', 'aac', '-b:a', `${audioBitrate}k`);
+  }
+
+  args.push(outputFilename);
+
+  await ffmpegInstance.exec(args);
+
+  ffmpegInstance.off('progress', progressListener);
+
+  const data = await ffmpegInstance.readFile(outputFilename);
+  await ffmpegInstance.deleteFile(inputFilename);
+  await ffmpegInstance.deleteFile(outputFilename);
+
+  return new Blob([(data as Uint8Array).buffer], { type: 'video/mp4' });
+};
+
+interface GifSettings {
+  resolution: number;
+  fps: number;
+  startTime: string;
+  endTime: string;
 }
+
+export const convertToGif = async (
+  file: File,
+  settings: GifSettings,
+  onProgress: (progress: { percentage: number; step: string }) => void
+): Promise<Blob> => {
+  if (!ffmpeg) {
+    await loadFfmpeg();
+  }
+  const ffmpegInstance = ffmpeg!;
+
+  const { resolution, fps, startTime, endTime } = settings;
+
+  const inputFilename = 'input.video';
+  const paletteFilename = 'palette.png';
+  const outputFilename = 'output.gif';
+
+  await ffmpegInstance.writeFile(inputFilename, await fetchFile(file));
+
+  // Pass 1: Generate palette for better quality
+  onProgress({ percentage: 0, step: 'Generating color palette...' });
+  const paletteArgs = ['-y'];
+  if (startTime) paletteArgs.push('-ss', startTime);
+  paletteArgs.push('-i', inputFilename);
+  if (endTime) paletteArgs.push('-to', endTime);
+  paletteArgs.push(
+    '-vf', `fps=${fps},scale=${resolution}:-1:flags=lanczos,palettegen`,
+    paletteFilename
+  );
+  await ffmpegInstance.exec(paletteArgs);
+  onProgress({ percentage: 50, step: 'Generating color palette...' });
+
+  // Pass 2: Convert to GIF using the palette
+  onProgress({ percentage: 50, step: 'Converting video to GIF...' });
+  const gifArgs = [];
+  if (startTime) gifArgs.push('-ss', startTime);
+  gifArgs.push('-i', inputFilename, '-i', paletteFilename);
+  if (endTime) gifArgs.push('-to', endTime);
+  gifArgs.push(
+    '-filter_complex', `fps=${fps},scale=${resolution}:-1:flags=lanczos[x];[x][1:v]paletteuse`,
+    outputFilename
+  );
+  await ffmpegInstance.exec(gifArgs);
+  onProgress({ percentage: 100, step: 'Finalizing...' });
+
+  const data = await ffmpegInstance.readFile(outputFilename);
+
+  await ffmpegInstance.deleteFile(inputFilename);
+  await ffmpegInstance.deleteFile(paletteFilename);
+  await ffmpegInstance.deleteFile(outputFilename);
+
+  return new Blob([(data as Uint8Array).buffer], { type: 'image/gif' });
+};
