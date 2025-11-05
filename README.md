@@ -39,7 +39,7 @@ Dengan melakukan pra-kompresi video Anda ke format dan ukuran yang "ramah" bagi 
 
 1.  **Pilih Video**: Anda memilih file video dari perangkat Anda atau melepaskannya ke area unggah.
 2.  **Muat FFmpeg**: Aplikasi memuat *core library* FFmpeg sebagai modul WebAssembly. Proses ini mungkin memerlukan beberapa saat pada kunjungan pertama Anda.
-3.  **Atur & Kompres**: Anda mengonfigurasi pengaturan yang diinginkan (ukuran target, resolusi). Aplikasi kemudian menggunakan proses *two-pass encoding* dengan codec `libx264` untuk mengompres video secara efisien, memprioritaskan kualitas pada *bitrate* target.
+3.  **Atur & Kompres**: Anda mengonfigurasi pengaturan yang diinginkan (ukuran target, resolusi). Aplikasi kemudian menggunakan proses *two-pass encoding* dengan codec `libx24` untuk mengompres video secara efisien, memprioritaskan kualitas pada *bitrate* target.
 4.  **Unduh & Gunakan**: Video yang telah dikompresi disajikan kepada Anda untuk diunduh atau disalin, semuanya tanpa pernah menyentuh server.
 
 ## 💻 Menjalankan Secara Lokal
@@ -78,7 +78,7 @@ Proyek ini dilisensikan di bawah Lisensi MIT. Lihat file `LICENSE` untuk detailn
 
 ### **MIT License**
 
-Copyright (c) 2024 [Your Name or Project Name]
+Copyright (c) 2024 Andika Tulus Pangestu
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
